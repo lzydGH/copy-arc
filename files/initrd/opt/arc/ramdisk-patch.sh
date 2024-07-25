@@ -30,16 +30,17 @@ PLATFORM="$(readConfigKey "platform" "${USER_CONFIG_FILE}")"
 MODEL="$(readConfigKey "model" "${USER_CONFIG_FILE}")"
 MODELID="$(readConfigKey "modelid" "${USER_CONFIG_FILE}")"
 LKM="$(readConfigKey "lkm" "${USER_CONFIG_FILE}")"
-SN="$(readConfigKey "arc.sn" "${USER_CONFIG_FILE}")"
+SN="$(readConfigKey "sn" "${USER_CONFIG_FILE}")"
 LAYOUT="$(readConfigKey "layout" "${USER_CONFIG_FILE}")"
 KEYMAP="$(readConfigKey "keymap" "${USER_CONFIG_FILE}")"
-HDDSORT="$(readConfigKey "arc.hddsort" "${USER_CONFIG_FILE}")"
+HDDSORT="$(readConfigKey "hddsort" "${USER_CONFIG_FILE}")"
+CPUGOVERNOR="$(readConfigKey "governor" "${USER_CONFIG_FILE}")"
 KERNEL="$(readConfigKey "kernel" "${USER_CONFIG_FILE}")"
 RD_COMPRESSED="$(readConfigKey "rd-compressed" "${USER_CONFIG_FILE}")"
 PRODUCTVER="$(readConfigKey "productver" "${USER_CONFIG_FILE}")"
 # Read new PAT Info from Config
-PAT_URL="$(readConfigKey "arc.paturl" "${USER_CONFIG_FILE}")"
-PAT_HASH="$(readConfigKey "arc.pathash" "${USER_CONFIG_FILE}")"
+PAT_URL="$(readConfigKey "paturl" "${USER_CONFIG_FILE}")"
+PAT_HASH="$(readConfigKey "pathash" "${USER_CONFIG_FILE}")"
 
 [ "${PATURL:0:1}" == "#" ] && PATURL=""
 [ "${PATSUM:0:1}" == "#" ] && PATSUM=""
@@ -59,7 +60,7 @@ if [ "${PRODUCTVERDSM}" != "${PRODUCTVER}" ]; then
 fi
 
 # Read model data
-KVER="$(readConfigKey "platforms.${PLATFORM}.productvers.[${PRODUCTVER}].kver" "${P_FILE}")"
+KVER="$(readConfigKey "platforms.${PLATFORM}.productvers.\"${PRODUCTVER}\".kver" "${P_FILE}")"
 
 # Modify KVER for Epyc7002
 if [ "${PLATFORM}" == "epyc7002" ]; then
@@ -152,7 +153,7 @@ echo 'echo "addons.sh called with params ${@}"' >>"${RAMDISK_PATH}/addons/addons
 echo "export LOADERLABEL=\"ARC\"" >>"${RAMDISK_PATH}/addons/addons.sh"
 echo "export LOADERVERSION=\"${ARC_VERSION}\"" >>"${RAMDISK_PATH}/addons/addons.sh"
 echo "export PLATFORM=\"${PLATFORM}\"" >>"${RAMDISK_PATH}/addons/addons.sh"
-echo "export PRODUCTVER=\"${PRODUCTVER}\"" >>"${RAMDISK_PATH}/addons/addons.sh"
+echo "export PRODUCTVERL=\"${PRODUCTVER}\"" >>"${RAMDISK_PATH}/addons/addons.sh"
 echo "export MODEL=\"${MODEL}\"" >>"${RAMDISK_PATH}/addons/addons.sh"
 echo "export MODELID=\"${MODELID}\"" >>"${RAMDISK_PATH}/addons/addons.sh"
 echo "export MLINK=\"${PAT_URL}\"" >>"${RAMDISK_PATH}/addons/addons.sh"
@@ -162,25 +163,17 @@ echo "export KEYMAP=\"${KEYMAP}\"" >>"${RAMDISK_PATH}/addons/addons.sh"
 chmod +x "${RAMDISK_PATH}/addons/addons.sh"
 
 # System Addons
-for ADDON in "redpill" "revert" "misc" "eudev" "disks" "localrss" "notify" "updatenotify" "wol" "mountloader"; do
+for ADDON in "redpill" "revert" "misc" "eudev" "disks" "localrss" "notify" "updatenotify" "wol" "mountloader" "powersched" "cpufreqscaling"; do
   PARAMS=""
   if [ "${ADDON}" == "disks" ]; then
-    PARAMS=${HDDSORT}
+    PARAMS=${HDDSORT:-"false"}
     [ -f "${USER_UP_PATH}/${MODEL}.dts" ] && cp -f "${USER_UP_PATH}/${MODEL}.dts" "${RAMDISK_PATH}/addons/model.dts"
+  elif [ "${ADDON}" == "cpufreqscaling" ]; then
+    PARAMS=${CPUGOVERNOR:-"performance"}
   fi
   installAddon "${ADDON}" "${PLATFORM}" || exit 1
   echo "/addons/${ADDON}.sh \${1} ${PARAMS}" >>"${RAMDISK_PATH}/addons/addons.sh" 2>>"${LOG_FILE}" || exit 1
 done
-
-# Check for Hypervisor & add Cpufreqscaling service
-if grep -q "^flags.*acpi.*" /proc/cpuinfo; then
-  for ADDON in "cpufreqscaling"; do
-    CPUGOVERNOR="$(readConfigKey "arc.governor" "${USER_CONFIG_FILE}")"
-    PARAMS=${CPUGOVERNOR}
-    installAddon "${ADDON}" "${PLATFORM}" || exit 1
-    echo "/addons/${ADDON}.sh \${1} ${PARAMS}" >>"${RAMDISK_PATH}/addons/addons.sh" 2>>"${LOG_FILE}" || exit 1
-  done
-fi
 
 # User Addons
 for ADDON in ${!ADDONS[@]}; do
@@ -227,14 +220,8 @@ for F in "${USER_GRUB_CONFIG}" "${USER_CONFIG_FILE}" "${USER_UP_PATH}"; do
 done
 
 # Network card configuration file
-IPV6="$(readConfigKey "arc.ipv6" "${USER_CONFIG_FILE}")"
-ETHX=$(ls /sys/class/net/ 2>/dev/null | grep eth) || true
-for ETH in ${ETHX}; do
-  if [ "${IPV6}" == "true" ]; then
-    echo -e "DEVICE=${ETH}\nBOOTPROTO=dhcp\nONBOOT=yes\nIPV6INIT=dhcp\nIPV6_ACCEPT_RA=1" >"${RAMDISK_PATH}/etc/sysconfig/network-scripts/ifcfg-${ETH}"
-  else
-    echo -e "DEVICE=${ETH}\nBOOTPROTO=dhcp\nONBOOT=yes\nIPV6INIT=no" >"${RAMDISK_PATH}/etc/sysconfig/network-scripts/ifcfg-${ETH}"
-  fi
+for N in $(seq 0 7); do
+  echo -e "DEVICE=eth${N}\nBOOTPROTO=dhcp\nONBOOT=yes\nIPV6INIT=dhcp\nIPV6_ACCEPT_RA=1" >"${RAMDISK_PATH}/etc/sysconfig/network-scripts/ifcfg-eth${N}"
 done
 
 # SA6400 patches
@@ -250,6 +237,12 @@ if [ "${PLATFORM}" == "broadwellntbap" ]; then
   sed -i 's/IsUCOrXA="yes"/XIsUCOrXA="yes"/g; s/IsUCOrXA=yes/XIsUCOrXA=yes/g' ${RAMDISK_PATH}/usr/syno/share/environments.sh
 fi
 
+# Call user patch scripts
+for F in $(ls -1 ${USER_UP_PATH}/*.sh 2>/dev/null); do
+  echo "Calling ${F}" >"${LOG_FILE}"
+  . "${F}" >>"${LOG_FILE}" 2>&1 || exit 1
+done
+
 # Reassembly ramdisk
 if [ "${RD_COMPRESSED}" == "true" ]; then
   (cd "${RAMDISK_PATH}" && find . 2>/dev/null | cpio -o -H newc -R root:root | xz -9 --format=lzma >"${MOD_RDGZ_FILE}") >"${LOG_FILE}" 2>&1 || exit 1
@@ -258,3 +251,6 @@ else
 fi
 
 sync
+
+# Clean
+rm -rf "${RAMDISK_PATH}"

@@ -203,7 +203,7 @@ function getTheme() {
 # $2 path
 function getBuildroot() {
   echo "Getting Buildroot begin"
-  local TAG="${1:-latest}"
+  TAG="${1:-latest}"
   local DEST_PATH="${2:-br}"
 
   if [ "${TAG}" = "latest" ]; then
@@ -386,6 +386,8 @@ extendedConfigFile = "${VMNAME}.vmxf"
 floppy0.present = "FALSE"
 ethernet0.addressType = "generated"
 ethernet0.virtualDev = "vmxnet3"
+ethernet0.connectionType = "nat"
+ethernet0.allowguestconnectioncontrol = "true"
 ethernet0.present = "TRUE"
 sata0.present = "TRUE"
 sata0:0.fileName = "${VMNAME}-disk1.vmdk"

@@ -12,6 +12,11 @@ N kvm-intel.ko
 N kvm-amd.ko
 N kvm.ko
 
+# acpi
+N acpi_call.ko
+N cpufreq_conservative.ko
+N cpufreq_ondemand.ko
+
 # sensors
 N coretemp.ko
 N k10temp.ko
@@ -23,9 +28,9 @@ N nct6683.ko
 N nct6775.ko
 
 # rndis
-#F mii.ko
-#F cdc_ether.ko
-#F rndis_host.ko
+F mii.ko
+F cdc_ether.ko
+F rndis_host.ko
 
 ## i915
 #N dmabuf.ko
