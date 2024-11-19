@@ -122,13 +122,13 @@ function getmap() {
   if [ $(lspci -d ::106 | wc -l) -gt 0 ]; then
     LASTDRIVE=0
     while read -r D; do
-      if [ "${BUS}" == "sata" ] && [ "${MACHINE}" != "Native" ] && [ ${D} -eq 0 ]; then
+      if [ "${BUS}" = "sata" ] && [ "${MACHINE}" != "Native" ] && [ ${D} -eq 0 ]; then
         MAXDISKS=${DRIVES}
         echo -n "${D}>${MAXDISKS}:">>"${TMP_PATH}/remap"
       elif [ ${D} != ${LASTDRIVE} ]; then
         echo -n "${D}>${LASTDRIVE}:">>"${TMP_PATH}/remap"
         LASTDRIVE=$((${LASTDRIVE} + 1))
-      elif [ ${D} == ${LASTDRIVE} ]; then
+      elif [ ${D} = ${LASTDRIVE} ]; then
         LASTDRIVE=$((${D} + 1))
       fi
     done < <(cat "${TMP_PATH}/ports")
@@ -142,27 +142,41 @@ function getmapSelection() {
   SATAREMAP="$(awk '{print $1}' "${TMP_PATH}/remap" | sed 's/.$//')"
   EXTERNALCONTROLLER="$(readConfigKey "device.externalcontroller" "${USER_CONFIG_FILE}")"
   ARCMODE="$(readConfigKey "arc.mode" "${USER_CONFIG_FILE}")"
-  if [ "${ARCMODE}" == "config" ]; then
+  if [ "${ARCMODE}" = "config" ]; then
     # Show recommended Option to user
-    if [ -n "${SATAREMAP}" ] && [ "${EXTERNALCONTROLLER}" == "true" ] && [ "${MACHINE}" == "Native" ]; then
+    if [ -n "${SATAREMAP}" ] && [ "${EXTERNALCONTROLLER}" = "true" ] && [ "${MACHINE}" = "Native" ]; then
       REMAP2="*"
-    elif [ -n "${SATAREMAP}" ] && [ "${EXTERNALCONTROLLER}" == "false" ]; then
+    elif [ -n "${SATAREMAP}" ] && [ "${EXTERNALCONTROLLER}" = "false" ]; then
       REMAP3="*"
     else
       REMAP1="*"
     fi
     # Ask for Portmap
-    dialog --backtitle "$(backtitle)" --title "Sata Portmap" \
-      --menu "Choose a Portmap for Sata!?\n* Recommended Option" 8 60 0 \
-      1 "DiskIdxMap: Active Ports ${REMAP1}" \
-      2 "DiskIdxMap: Max Ports ${REMAP2}" \
-      3 "SataRemap: Remove empty Ports ${REMAP3}" \
-      4 "AhciRemap: Remove empty Ports (new) ${REMAP4}" \
-      5 "Set my own Portmap in Config" \
-    2>"${TMP_PATH}/resp"
-    [ $? -ne 0 ] && return 1
-    resp=$(cat "${TMP_PATH}/resp")
-    [ -z "${resp}" ] && return 1
+    if [ "${STEP}" = "storagemap" ]; then
+      dialog --backtitle "$(backtitlep)" --title "Sata Portmap" \
+        --menu "Choose a Portmap for Sata!?\n* Recommended Option" 8 60 0 \
+        1 "DiskIdxMap: Active Ports ${REMAP1}" \
+        2 "DiskIdxMap: Max Ports ${REMAP2}" \
+        3 "SataRemap: Remove empty Ports ${REMAP3}" \
+        4 "AhciRemap: Remove empty Ports (new) ${REMAP4}" \
+        5 "Set my own Portmap in Config" \
+      2>"${TMP_PATH}/resp"
+      [ $? -ne 0 ] && return 1
+      resp=$(cat "${TMP_PATH}/resp")
+      [ -z "${resp}" ] && return 1
+    else
+        dialog --backtitle "$(backtitle)" --title "Sata Portmap" \
+        --menu "Choose a Portmap for Sata!?\n* Recommended Option" 8 60 0 \
+        1 "DiskIdxMap: Active Ports ${REMAP1}" \
+        2 "DiskIdxMap: Max Ports ${REMAP2}" \
+        3 "SataRemap: Remove empty Ports ${REMAP3}" \
+        4 "AhciRemap: Remove empty Ports (new) ${REMAP4}" \
+        5 "Set my own Portmap in Config" \
+      2>"${TMP_PATH}/resp"
+      [ $? -ne 0 ] && return 1
+      resp=$(cat "${TMP_PATH}/resp")
+      [ -z "${resp}" ] && return 1
+    fi
     if [ ${resp} -eq 1 ]; then
       writeConfigKey "arc.remap" "acports" "${USER_CONFIG_FILE}"
     elif [ ${resp} -eq 2 ]; then
@@ -176,9 +190,9 @@ function getmapSelection() {
     fi
   else
     # Show recommended Option to user
-    if [ -n "${SATAREMAP}" ] && [ "${EXTERNALCONTROLLER}" == "true" ] && [ "${MACHINE}" == "Native" ]; then
+    if [ -n "${SATAREMAP}" ] && [ "${EXTERNALCONTROLLER}" = "true" ] && [ "${MACHINE}" = "Native" ]; then
       writeConfigKey "arc.remap" "maxports" "${USER_CONFIG_FILE}"
-    elif [ -n "${SATAREMAP}" ] && [ "${EXTERNALCONTROLLER}" == "false" ]; then
+    elif [ -n "${SATAREMAP}" ] && [ "${EXTERNALCONTROLLER}" = "false" ]; then
       writeConfigKey "arc.remap" "remap" "${USER_CONFIG_FILE}"
     else
       writeConfigKey "arc.remap" "acports" "${USER_CONFIG_FILE}"
@@ -187,27 +201,27 @@ function getmapSelection() {
   # Check Remap for correct config
   REMAP="$(readConfigKey "arc.remap" "${USER_CONFIG_FILE}")"
   # Write Map to config and show Map to User
-  if [ "${REMAP}" == "acports" ]; then
+  if [ "${REMAP}" = "acports" ]; then
     writeConfigKey "cmdline.SataPortMap" "${SATAPORTMAP}" "${USER_CONFIG_FILE}"
     writeConfigKey "cmdline.DiskIdxMap" "${DISKIDXMAP}" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.sata_remap" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.ahci_remap" "${USER_CONFIG_FILE}"
-  elif [ "${REMAP}" == "maxports" ]; then
+  elif [ "${REMAP}" = "maxports" ]; then
     writeConfigKey "cmdline.SataPortMap" "${SATAPORTMAPMAX}" "${USER_CONFIG_FILE}"
     writeConfigKey "cmdline.DiskIdxMap" "${DISKIDXMAPMAX}" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.sata_remap" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.ahci_remap" "${USER_CONFIG_FILE}"
-  elif [ "${REMAP}" == "remap" ]; then
+  elif [ "${REMAP}" = "remap" ]; then
     writeConfigKey "cmdline.sata_remap" "${SATAREMAP}" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.DiskIdxMap" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.SataPortMap" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.ahci_remap" "${USER_CONFIG_FILE}"
-  elif [ "${REMAP}" == "ahci" ]; then
+  elif [ "${REMAP}" = "ahci" ]; then
     writeConfigKey "cmdline.ahci_remap" "${SATAREMAP}" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.DiskIdxMap" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.SataPortMap" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.sata_remap" "${USER_CONFIG_FILE}"
-  elif [ "${REMAP}" == "user" ]; then
+  elif [ "${REMAP}" = "user" ]; then
     deleteConfigKey "cmdline.SataPortMap" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.DiskIdxMap" "${USER_CONFIG_FILE}"
     deleteConfigKey "cmdline.sata_remap" "${USER_CONFIG_FILE}"

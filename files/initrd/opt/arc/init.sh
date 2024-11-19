@@ -4,7 +4,6 @@ set -e
 [[ -z "${ARC_PATH}" || ! -d "${ARC_PATH}/include" ]] && ARC_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 
 . ${ARC_PATH}/include/functions.sh
-. ${ARC_PATH}/include/update.sh
 
 # Get Loader Disk Bus
 [ -z "${LOADER_DISK}" ] && die "Loader Disk not found!"
@@ -19,7 +18,7 @@ clear
 COLUMNS=${COLUMNS:-50}
 BANNER="$(figlet -c -w "$(((${COLUMNS})))" "Arc Loader")"
 TITLE="Version:"
-TITLE+=" ${ARC_VERSION}"
+TITLE+=" ${ARC_VERSION} (${ARC_BUILD})"
 [ -n "${ARC_BRANCH}" ] && TITLE+=" | Branch: ${ARC_BRANCH}"
 printf "\033[1;30m%*s\n" ${COLUMNS} ""
 printf "\033[1;30m%*s\033[A\n" ${COLUMNS} ""
@@ -39,7 +38,6 @@ initConfigKey "arc" "{}" "${USER_CONFIG_FILE}"
 initConfigKey "arc.builddone" "false" "${USER_CONFIG_FILE}"
 initConfigKey "arc.confdone" "false" "${USER_CONFIG_FILE}"
 initConfigKey "arc.dynamic" "false" "${USER_CONFIG_FILE}"
-initConfigKey "arc.key" "" "${USER_CONFIG_FILE}"
 initConfigKey "arc.offline" "false" "${USER_CONFIG_FILE}"
 initConfigKey "arc.patch" "false" "${USER_CONFIG_FILE}"
 initConfigKey "arc.version" "${ARC_VERSION}" "${USER_CONFIG_FILE}"
@@ -97,16 +95,16 @@ if arrayExistItem "sortnetif:" $(readConfigMap "addons" "${USER_CONFIG_FILE}"); 
   _sort_netif "$(readConfigKey "addons.sortnetif" "${USER_CONFIG_FILE}")"
 fi
 # Read/Write IP/Mac to config
-ETHX="$(ls /sys/class/net 2>/dev/null | grep eth)"
-for ETH in ${ETHX}; do
-  MACR="$(cat /sys/class/net/${ETH}/address 2>/dev/null | sed 's/://g' | tr '[:lower:]' '[:upper:]')"
+ETHX=$(ip -o link show | awk -F': ' '{print $2}' | grep eth)
+for N in ${ETHX}; do
+  MACR="$(cat /sys/class/net/${N}/address 2>/dev/null | sed 's/://g' | tr '[:lower:]' '[:upper:]')"
   IPR="$(readConfigKey "network.${MACR}" "${USER_CONFIG_FILE}")"
-  if [ -n "${IPR}" ]; then
+  if [ -n "${IPR}" ] && [ "1" = "$(cat /sys/class/net/${N}/carrier 2>/dev/null)" ]; then
     IFS='/' read -r -a IPRA <<<"${IPR}"
-    ip addr flush dev ${ETH}
-    ip addr add ${IPRA[0]}/${IPRA[1]:-"255.255.255.0"} dev ${ETH}
+    ip addr flush dev ${N}
+    ip addr add ${IPRA[0]}/${IPRA[1]:-"255.255.255.0"} dev ${N}
     if [ -n "${IPRA[2]}" ]; then
-      ip route add default via ${IPRA[2]} dev ${ETH}
+      ip route add default via ${IPRA[2]} dev ${N}
     fi
     if [ -n "${IPRA[3]:-${IPRA[2]}}" ]; then
       sed -i "/nameserver ${IPRA[3]:-${IPRA[2]}}/d" /etc/resolv.conf
@@ -114,23 +112,22 @@ for ETH in ${ETHX}; do
     fi
     sleep 1
   fi
-  [ "${ETH::3}" == "eth" ] && ethtool -s ${ETH} wol g 2>/dev/null || true
-  # [ "${ETH::3}" == "eth" ] && ethtool -K ${ETH} rxhash off 2>/dev/null || true
-  initConfigKey "${ETH}" "${MACR}" "${USER_CONFIG_FILE}"
+  [ "${N::3}" = "eth" ] && ethtool -s ${N} wol g 2>/dev/null || true
+  # [ "${N::3}" = "eth" ] && ethtool -K ${N} rxhash off 2>/dev/null || true
+  initConfigKey "${N}" "${MACR}" "${USER_CONFIG_FILE}"
 done
-ETHN="$(echo ${ETHX} | wc -w)"
+ETHN=$(echo ${ETHX} | wc -w)
 writeConfigKey "device.nic" "${ETHN}" "${USER_CONFIG_FILE}"
 # No network devices
 echo
 [ ${ETHN} -le 0 ] && die "No NIC found! - Loader does not work without Network connection."
-[ ! -f /var/run/dhcpcd/pid ] && /etc/init.d/S41dhcpcd restart >/dev/null 2>&1 || true
 
 # Get the VID/PID if we are in USB
 VID="0x46f4"
 PID="0x0001"
 
 BUSLIST="usb sata sas scsi nvme mmc ide virtio vmbus xen"
-if [ "${BUS}" == "usb" ]; then
+if [ "${BUS}" = "usb" ]; then
   VID="0x$(udevadm info --query property --name "${LOADER_DISK}" | grep ID_VENDOR_ID | cut -d= -f2)"
   PID="0x$(udevadm info --query property --name "${LOADER_DISK}" | grep ID_MODEL_ID | cut -d= -f2)"
 elif ! echo "${BUSLIST}" | grep -wq "${BUS}"; then
@@ -149,16 +146,16 @@ writeConfigKey "pid" "${PID}" "${USER_CONFIG_FILE}"
 # Decide if boot automatically
 BUILDDONE="$(readConfigKey "arc.builddone" "${USER_CONFIG_FILE}")"
 ARCMODE="$(readConfigKey "arc.mode" "${USER_CONFIG_FILE}")"
-if [ "${ARCMODE}" == "config" ]; then
+if [ "${ARCMODE}" = "config" ]; then
   echo -e "\033[1;34mStarting Config Mode...\033[0m"
-elif [ "${ARCMODE}" == "automated" ]; then
+elif [ "${ARCMODE}" = "automated" ]; then
   echo -e "\033[1;34mStarting automated Build Mode...\033[0m"
-elif [ "${ARCMODE}" == "update" ]; then
+elif [ "${ARCMODE}" = "update" ]; then
   echo -e "\033[1;34mStarting Update Mode...\033[0m"
-elif [ "${BUILDDONE}" == "true" ] && [ "${ARCMODE}" == "dsm" ]; then
+elif [ "${BUILDDONE}" = "true" ] && [ "${ARCMODE}" = "dsm" ]; then
   echo -e "\033[1;34mStarting DSM Mode...\033[0m"
   if [ -f "${ARC_PATH}/boot.sh" ]; then
-    exec boot.sh
+    exec boot.sh && exit 0
   else
     echo -e "\033[1;31mError: Can't find Arc System Files...\033[0m"
   fi
@@ -172,28 +169,29 @@ BOOTIPWAIT="$(readConfigKey "bootipwait" "${USER_CONFIG_FILE}")"
 echo -e "\033[1;37mDetected ${ETHN} NIC:\033[0m"
 IPCON=""
 echo
+[ ! -f /var/run/dhcpcd/pid ] && /etc/init.d/S41dhcpcd restart >/dev/null 2>&1 || true
 sleep 3
-for ETH in ${ETHX}; do
+for N in ${ETHX}; do
   COUNT=0
-  DRIVER=$(ls -ld /sys/class/net/${ETH}/device/driver 2>/dev/null | awk -F '/' '{print $NF}')
+  DRIVER=$(ls -ld /sys/class/net/${N}/device/driver 2>/dev/null | awk -F '/' '{print $NF}')
   while true; do
-    if ethtool ${ETH} 2>/dev/null | grep 'Link detected' | grep -q 'no'; then
+    if [ "0" = "$(cat /sys/class/net/${N}/carrier 2>/dev/null)" ]; then
       echo -e "\r${DRIVER}: \033[1;37mNOT CONNECTED\033[0m"
       break
     fi
     COUNT=$((${COUNT} + 1))
-    IP="$(getIP ${ETH})"
+    IP="$(getIP ${N})"
     if [ -n "${IP}" ]; then
-      SPEED=$(ethtool ${ETH} 2>/dev/null | grep "Speed:" | awk '{print $2}')
+      SPEED=$(ethtool ${N} 2>/dev/null | grep "Speed:" | awk '{print $2}')
       if [[ "${IP}" =~ ^169\.254\..* ]]; then
         echo -e "\r${DRIVER} (${SPEED}): \033[1;37mLINK LOCAL (No DHCP server found.)\033[0m"
       else
         echo -e "\r${DRIVER} (${SPEED}): \033[1;37m${IP}\033[0m"
-        [ -z "${IPCON}" ] && IPCON="${IP}" && ONNIC="${ETH}"
+        [ -z "${IPCON}" ] && IPCON="${IP}"
       fi
       break
     fi
-    if ! ip link show ${ETH} 2>/dev/null | grep -q 'UP'; then
+    if [ -z "$(cat /sys/class/net/${N}}/carrier 2>/dev/null)" ]; then
       echo -e "\r${DRIVER}: \033[1;37mDOWN\033[0m"
       break
     fi
@@ -217,10 +215,10 @@ mkdir -p "${USER_UP_PATH}"
 # Load Arc Overlay
 echo -e "\033[1;34mLoading Arc Overlay...\033[0m"
 echo
-echo -e "Use \033[1;34mDisplay Output\033[0m or \033[1;34mhttp://${IPCON}:7681\033[0m to configure Loader."
+echo -e "Use \033[1;34mDisplay Output\033[0m or \033[1;34mhttp://${IPCON}:${TTYDPORT}\033[0m to configure Loader."
 
 # Check memory and load Arc
-RAM=$(free -m | grep -i mem | awk '{print$2}')
+RAM=$(awk '/MemTotal:/ {printf "%.0f", $2 / 1024}' /proc/meminfo 2>/dev/null)
 if [ ${RAM} -le 3500 ]; then
   echo -e "\033[1;31mYou have less than 4GB of RAM, if errors occur in loader creation, please increase the amount of RAM.\033[0m\n\033[1;31mUse arc.sh to proceed. Not recommended!\033[0m"
 else
